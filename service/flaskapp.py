@@ -1,7 +1,7 @@
-# basic API framework for the connectivity that will provide CAC access to contract DB info
+# basic API framework
 # Luis Hernandez
 # Updated
-# v0.1 - 2019-10-28
+# 2019-10-31
 
 # for CMD
 #set FLASK_APP=flaskapp
