@@ -1,16 +1,26 @@
 # INSTALL PYTHON IMAGE
-#FROM python:3.6
 FROM centos:centos7
-MAINTAINER Luis Hernandez <luisrh01@hotmail.com>
+#FROM python:3.6-slim
+MAINTAINER Luis Hernandez <luis.r.hernandez4@navy.mil>
+#COPY certs/* /etc/pki/ca-trust/source/anchors/
+#RUN update-ca-trust
 
 # INSTALL TOOLS AND PYTHON 36
 RUN yum -y update
 RUN yum -y install  unzip \
     && yum -y install  libaio-devel \
-    && yum -y install https://centos7.iuscommunity.org/ius-release.rpm \
-    && yum  -y install python36u python36u-libs python36u-devel python36u-pip \
-    && yum -y install python-pip \
-    && mkdir -p /opt/data/api
+    && mkdir -p /data/api \
+    && mkdir -p /app
+
+RUN yum install -y python36.x86_64 python36-devel.x86_64 python36-pip.noarch gcc sudo python36-setuptools && \
+    easy_install-3.6 pip
+    
+# INSTALL OS DEPENDENCIES NEEDED BY R LIBRARIES AND R
+RUN yum -y install openssl-devel cyrus-sasl-devel libcurl-devel psmisc gcc gcc-c++ make libxml2-devel unixODBC unixODBC-devel
+RUN yum -y install wget git R
+RUN pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade pip
+RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade pip
+RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org Flask gunicorn
 
 # SETUP ENV FOR R
 RUN chmod g+w /etc/passwd && \
@@ -18,18 +28,13 @@ RUN chmod g+w /etc/passwd && \
     useradd -u 1000 -g root -d /home/user --shell /bin/bash -m user && \
     chmod g+rwx /home/user
 
-# INSTALL OS DEPENDENCIES NEEDED BY R LIBRARIES AND R
-RUN yum -y install openssl-devel cyrus-sasl-devel libcurl-devel psmisc gcc gcc-c++ make libxml2-devel unixODBC unixODBC-devel
-RUN yum -y install wget git R
-RUN pip install --upgrade pip
-RUN pip3 install --upgrade pip
+ADD ./api/server.py /data/api
+ADD ./oracle-instantclient/ /data
+ADD ./install-instantclient.sh /data
+ADD ./prerequirements.txt /data
+ADD ./requirements.txt /data
 
-ADD ./oracle-instantclient/ /opt/data
-ADD ./install-instantclient.sh /opt/data
-ADD ./requirements.txt /opt/data
-#ADD ./packages.txt /opt/database
-
-WORKDIR /opt/data
+WORKDIR /data
 
 ENV ORACLE_HOME=/opt/oracle/instantclient
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$ORACLE_HOME
@@ -40,23 +45,18 @@ ENV OCI_INCLUDE_DIR=/opt/oracle/instantclient/sdk/include
 
 # INSTALL ORACLE INSTANTCLIENT, rpy2 AND PYTHON CODE DEPENDENCIES
 USER root
+
 RUN ["/bin/bash","./install-instantclient.sh"]
-RUN pip install rpy2
-RUN pip install -r requirements.txt
+RUN pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r prerequirements.txt
+RUN pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
 
-# SET UP R USER ENVIRONMENT
-ENV USER=ruser \
-    PASSWORD=ruser \
-    HOME=/home/user
-RUN echo "PATH=${PATH}" >> /usr/lib64/R/etc/Renviron \
-    && mkdir /usr/share/doc/R-3.6.0/html \
-    && mkdir /home/user/projects
+WORKDIR "/app"
+COPY ["service", "/app"]
+RUN touch log.txt && \
+    chmod a+w log.txt 
 
-# INSTALL PACKAGES FOR R - NEED TO CONFIGURE
-USER 1000
-# WORKDIR /home/user/projects
-#RUN R -e "install.packages('plumber',dependencies=TRUE)"
+#Expose pod ports
+EXPOSE 8080
 
-EXPOSE 5000
-WORKDIR /opt/data
-CMD ["python","./api/server.py"]
+#Start gunicorn and have it point to the exposed port
+CMD ["/usr/local/bin/gunicorn", "--bind", "0.0.0.0:8080", "-c", "python:GunicornConfig", "GunicornStart:application"]
